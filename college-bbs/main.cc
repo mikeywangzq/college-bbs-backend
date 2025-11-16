@@ -1,11 +1,18 @@
 #include <drogon/drogon.h>
-int main() {
-    //Set HTTP listener address and port
-    //drogon::app().addListener("0.0.0.0", 5555);
-    //Load config file
-    drogon::app().loadConfigFile("/home/mikey/proj/college-bbs-backend/college-bbs/config.json");
-    //drogon::app().loadConfigFile("../config.yaml");
-    //Run HTTP framework,the method will block in the internal event loop
+
+int main(int argc, char *argv[]) {
+    // Load config file - use relative path for portability
+    std::string config_file = "./config.json";
+
+    // Allow custom config file via command line argument
+    if (argc > 1) {
+        config_file = argv[1];
+    }
+
+    drogon::app().loadConfigFile(config_file);
+
+    // Run HTTP framework, the method will block in the internal event loop
     drogon::app().run();
+
     return 0;
 }
