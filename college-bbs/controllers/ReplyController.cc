@@ -52,34 +52,44 @@ void ReplyController::create(const HttpRequestPtr& req,
                 return;
             }
 
+            // 使用事务保证数据一致性
+            auto transPtr = dbClient->newTransaction();
+
             // 插入回复
             auto sql_insert = "INSERT INTO replies (post_id, user_id, content) VALUES (?, ?, ?)";
 
-            dbClient->execSqlAsync(
+            transPtr->execSqlAsync(
                 sql_insert,
-                [callback, post_id, dbClient](const Result& r) {
+                [callback, post_id, transPtr](const Result& r) {
                     auto insert_id = r.insertId();
 
                     // 更新帖子的回复数 +1
                     auto sql_update = "UPDATE posts SET reply_count = reply_count + 1 WHERE id = ?";
 
-                    dbClient->execSqlAsync(
+                    transPtr->execSqlAsync(
                         sql_update,
-                        [callback, insert_id](const Result& r) {
-                            Json::Value data;
-                            data["reply_id"] = static_cast<int>(insert_id);
+                        [callback, insert_id, transPtr](const Result& r) {
+                            // 提交事务
+                            transPtr->commit([callback, insert_id]() {
+                                Json::Value data;
+                                data["reply_id"] = static_cast<int>(insert_id);
 
-                            callback(ResponseUtil::success(data, "回复成功"));
+                                callback(ResponseUtil::success(data, "回复成功"));
+                            });
                         },
-                        [callback](const DrogonDbException& e) {
+                        [callback, transPtr](const DrogonDbException& e) {
                             LOG_ERROR << "Update reply count error: " << e.base().what();
+                            // 回滚事务
+                            transPtr->rollback();
                             callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                         },
                         post_id
                     );
                 },
-                [callback](const DrogonDbException& e) {
+                [callback, transPtr](const DrogonDbException& e) {
                     LOG_ERROR << "Database error: " << e.base().what();
+                    // 回滚事务
+                    transPtr->rollback();
                     callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                 },
                 post_id, user_id, content
@@ -135,29 +145,39 @@ void ReplyController::deleteReply(const HttpRequestPtr& req,
                 return;
             }
 
+            // 使用事务保证数据一致性
+            auto transPtr = dbClient->newTransaction();
+
             // 删除回复
             auto sql_delete = "DELETE FROM replies WHERE id = ?";
 
-            dbClient->execSqlAsync(
+            transPtr->execSqlAsync(
                 sql_delete,
-                [callback, post_id, dbClient](const Result& r) {
+                [callback, post_id, transPtr](const Result& r) {
                     // 更新帖子的回复数 -1
                     auto sql_update = "UPDATE posts SET reply_count = reply_count - 1 WHERE id = ?";
 
-                    dbClient->execSqlAsync(
+                    transPtr->execSqlAsync(
                         sql_update,
-                        [callback](const Result& r) {
-                            callback(ResponseUtil::success(Json::Value::null, "删除成功"));
+                        [callback, transPtr](const Result& r) {
+                            // 提交事务
+                            transPtr->commit([callback]() {
+                                callback(ResponseUtil::success(Json::Value::null, "删除成功"));
+                            });
                         },
-                        [callback](const DrogonDbException& e) {
+                        [callback, transPtr](const DrogonDbException& e) {
                             LOG_ERROR << "Update reply count error: " << e.base().what();
+                            // 回滚事务
+                            transPtr->rollback();
                             callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                         },
                         post_id
                     );
                 },
-                [callback](const DrogonDbException& e) {
+                [callback, transPtr](const DrogonDbException& e) {
                     LOG_ERROR << "Database error: " << e.base().what();
+                    // 回滚事务
+                    transPtr->rollback();
                     callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                 },
                 reply_id

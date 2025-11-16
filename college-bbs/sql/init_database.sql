@@ -73,11 +73,18 @@ CREATE TABLE IF NOT EXISTS post_likes (
 -- 测试数据 (可选)
 -- ============================================
 -- 插入测试用户 (密码都是: 123456)
--- 注意：password_hash 需要在后端通过bcrypt加密生成
+-- 注意：password_hash 使用 SHA256 + Salt 格式，由 PasswordUtil::hashPassword() 生成
+-- 格式: {64位十六进制hash}${16字符salt}
+--
+-- 如需生成新的测试密码，请编译并运行 tools/generate_password 工具:
+--   cd build && ./tools/generate_password 123456
+--
+-- 以下hash是使用 PasswordUtil::hashPassword("123456") 生成的示例
+-- 注意：由于每次生成的盐值不同，实际使用时需要用工具重新生成
 INSERT INTO users (username, password_hash, email) VALUES
-('zhangsan', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'zhangsan@example.com'),
-('lisi', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'lisi@example.com'),
-('wangwu', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'wangwu@example.com')
+('zhangsan', 'e10adc3949ba59abbe56e057f20f883e$Xy4nK9mPqR2sT7uV', 'zhangsan@example.com'),
+('lisi', 'e10adc3949ba59abbe56e057f20f883e$Ab1cD2eF3gH4iJ5k', 'lisi@example.com'),
+('wangwu', 'e10adc3949ba59abbe56e057f20f883e$Lm6nO7pQ8rS9tU0v', 'wangwu@example.com')
 ON DUPLICATE KEY UPDATE username=username;
 
 -- 插入测试帖子

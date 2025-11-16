@@ -179,96 +179,101 @@ void PostController::getDetail(const HttpRequestPtr& req,
         return;
     }
 
+    // 验证post_id有效性
+    if (post_id <= 0) {
+        callback(ResponseUtil::error(ResponseUtil::PARAM_ERROR, "帖子ID无效"));
+        return;
+    }
+
     // 获取数据库客户端
     auto dbClient = drogon::app().getDbClient();
 
-    // 浏览次数+1
-    auto sql_view = "UPDATE posts SET view_count = view_count + 1 WHERE id = ?";
+    // 先更新浏览次数，然后在回调中查询帖子信息（避免竞态条件）
+    auto sql_update = "UPDATE posts SET view_count = view_count + 1 WHERE id = ?";
     dbClient->execSqlAsync(
-        sql_view,
-        [](const Result& r) {
-            // 浏览次数更新成功
-        },
-        [](const DrogonDbException& e) {
-            LOG_ERROR << "Update view count error: " << e.base().what();
-        },
-        post_id
-    );
-
-    // 查询帖子信息
-    auto sql_post = R"(
-        SELECT
-            p.id,
-            p.title,
-            p.content,
-            p.view_count,
-            p.like_count,
-            p.reply_count,
-            p.created_at,
-            u.id as author_id,
-            u.username as author
-        FROM posts p
-        JOIN users u ON p.user_id = u.id
-        WHERE p.id = ?
-        LIMIT 1
-    )";
-
-    dbClient->execSqlAsync(
-        sql_post,
+        sql_update,
         [callback, post_id, dbClient](const Result& r) {
-            if (r.size() == 0) {
-                callback(ResponseUtil::error(ResponseUtil::POST_NOT_FOUND, "帖子不存在"));
-                return;
-            }
-
-            auto row = r[0];
-
-            Json::Value post;
-            post["id"] = row["id"].as<int>();
-            post["title"] = row["title"].as<std::string>();
-            post["content"] = row["content"].as<std::string>();
-            post["author"] = row["author"].as<std::string>();
-            post["author_id"] = row["author_id"].as<int>();
-            post["view_count"] = row["view_count"].as<int>() + 1; // +1 因为刚才更新了
-            post["like_count"] = row["like_count"].as<int>();
-            post["reply_count"] = row["reply_count"].as<int>();
-            post["created_at"] = row["created_at"].as<std::string>();
-
-            // 查询回复列表
-            auto sql_replies = R"(
+            // 浏览次数更新成功，现在查询帖子信息
+            auto sql_post = R"(
                 SELECT
-                    r.id,
-                    r.content,
-                    r.created_at,
+                    p.id,
+                    p.title,
+                    p.content,
+                    p.view_count,
+                    p.like_count,
+                    p.reply_count,
+                    p.created_at,
                     u.id as author_id,
                     u.username as author
-                FROM replies r
-                JOIN users u ON r.user_id = u.id
-                WHERE r.post_id = ?
-                ORDER BY r.created_at ASC
+                FROM posts p
+                JOIN users u ON p.user_id = u.id
+                WHERE p.id = ?
+                LIMIT 1
             )";
 
             dbClient->execSqlAsync(
-                sql_replies,
-                [callback, post](const Result& r) {
-                    Json::Value replies(Json::arrayValue);
-
-                    for (const auto& row : r) {
-                        Json::Value reply;
-                        reply["id"] = row["id"].as<int>();
-                        reply["content"] = row["content"].as<std::string>();
-                        reply["author"] = row["author"].as<std::string>();
-                        reply["author_id"] = row["author_id"].as<int>();
-                        reply["created_at"] = row["created_at"].as<std::string>();
-
-                        replies.append(reply);
+                sql_post,
+                [callback, post_id, dbClient](const Result& r) {
+                    if (r.size() == 0) {
+                        callback(ResponseUtil::error(ResponseUtil::POST_NOT_FOUND, "帖子不存在"));
+                        return;
                     }
 
-                    Json::Value data;
-                    data["post"] = post;
-                    data["replies"] = replies;
+                    auto row = r[0];
 
-                    callback(ResponseUtil::success(data));
+                    Json::Value post;
+                    post["id"] = row["id"].as<int>();
+                    post["title"] = row["title"].as<std::string>();
+                    post["content"] = row["content"].as<std::string>();
+                    post["author"] = row["author"].as<std::string>();
+                    post["author_id"] = row["author_id"].as<int>();
+                    post["view_count"] = row["view_count"].as<int>(); // 已经包含了最新的浏览次数
+                    post["like_count"] = row["like_count"].as<int>();
+                    post["reply_count"] = row["reply_count"].as<int>();
+                    post["created_at"] = row["created_at"].as<std::string>();
+
+                    // 查询回复列表
+                    auto sql_replies = R"(
+                        SELECT
+                            r.id,
+                            r.content,
+                            r.created_at,
+                            u.id as author_id,
+                            u.username as author
+                        FROM replies r
+                        JOIN users u ON r.user_id = u.id
+                        WHERE r.post_id = ?
+                        ORDER BY r.created_at ASC
+                    )";
+
+                    dbClient->execSqlAsync(
+                        sql_replies,
+                        [callback, post](const Result& r) {
+                            Json::Value replies(Json::arrayValue);
+
+                            for (const auto& row : r) {
+                                Json::Value reply;
+                                reply["id"] = row["id"].as<int>();
+                                reply["content"] = row["content"].as<std::string>();
+                                reply["author"] = row["author"].as<std::string>();
+                                reply["author_id"] = row["author_id"].as<int>();
+                                reply["created_at"] = row["created_at"].as<std::string>();
+
+                                replies.append(reply);
+                            }
+
+                            Json::Value data;
+                            data["post"] = post;
+                            data["replies"] = replies;
+
+                            callback(ResponseUtil::success(data));
+                        },
+                        [callback](const DrogonDbException& e) {
+                            LOG_ERROR << "Database error: " << e.base().what();
+                            callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
+                        },
+                        post_id
+                    );
                 },
                 [callback](const DrogonDbException& e) {
                     LOG_ERROR << "Database error: " << e.base().what();
@@ -278,7 +283,7 @@ void PostController::getDetail(const HttpRequestPtr& req,
             );
         },
         [callback](const DrogonDbException& e) {
-            LOG_ERROR << "Database error: " << e.base().what();
+            LOG_ERROR << "Update view count error: " << e.base().what();
             callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
         },
         post_id

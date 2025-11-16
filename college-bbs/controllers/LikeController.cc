@@ -44,96 +44,146 @@ void LikeController::toggle(const HttpRequestPtr& req,
             dbClient->execSqlAsync(
                 sql_check_like,
                 [callback, user_id, post_id, dbClient](const Result& r) {
-                    if (r.size() > 0) {
+                    bool already_liked = (r.size() > 0);
+
+                    // 使用事务保证数据一致性
+                    auto transPtr = dbClient->newTransaction();
+
+                    if (already_liked) {
                         // 已经点赞，执行取消点赞操作
                         auto sql_delete = "DELETE FROM post_likes WHERE post_id = ? AND user_id = ?";
 
-                        dbClient->execSqlAsync(
+                        transPtr->execSqlAsync(
                             sql_delete,
-                            [callback, post_id, dbClient](const Result& r) {
-                                // 更新帖子的点赞数 -1
-                                auto sql_update = "UPDATE posts SET like_count = like_count - 1 WHERE id = ?";
+                            [callback, post_id, transPtr](const Result& r) {
+                                // 检查是否删除成功
+                                if (r.affectedRows() == 0) {
+                                    transPtr->rollback();
+                                    callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "取消点赞失败"));
+                                    return;
+                                }
 
-                                dbClient->execSqlAsync(
+                                // 更新帖子的点赞数 -1
+                                auto sql_update = "UPDATE posts SET like_count = like_count - 1 WHERE id = ? AND like_count > 0";
+
+                                transPtr->execSqlAsync(
                                     sql_update,
-                                    [callback, post_id, dbClient](const Result& r) {
+                                    [callback, post_id, transPtr](const Result& r) {
                                         // 查询最新的点赞数
                                         auto sql_count = "SELECT like_count FROM posts WHERE id = ?";
 
-                                        dbClient->execSqlAsync(
+                                        transPtr->execSqlAsync(
                                             sql_count,
-                                            [callback](const Result& r) {
+                                            [callback, transPtr](const Result& r) {
                                                 int like_count = r[0]["like_count"].as<int>();
 
-                                                Json::Value data;
-                                                data["liked"] = false;
-                                                data["like_count"] = like_count;
+                                                // 提交事务
+                                                transPtr->commit([callback, like_count]() {
+                                                    Json::Value data;
+                                                    data["liked"] = false;
+                                                    data["like_count"] = like_count;
 
-                                                callback(ResponseUtil::success(data));
+                                                    callback(ResponseUtil::success(data));
+                                                });
                                             },
-                                            [callback](const DrogonDbException& e) {
-                                                LOG_ERROR << "Database error: " << e.base().what();
+                                            [callback, transPtr](const DrogonDbException& e) {
+                                                LOG_ERROR << "Query like count error: " << e.base().what();
+                                                transPtr->rollback();
                                                 callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                                             },
                                             post_id
                                         );
                                     },
-                                    [callback](const DrogonDbException& e) {
+                                    [callback, transPtr](const DrogonDbException& e) {
                                         LOG_ERROR << "Update like count error: " << e.base().what();
+                                        transPtr->rollback();
                                         callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                                     },
                                     post_id
                                 );
                             },
-                            [callback](const DrogonDbException& e) {
-                                LOG_ERROR << "Database error: " << e.base().what();
+                            [callback, transPtr](const DrogonDbException& e) {
+                                LOG_ERROR << "Delete like error: " << e.base().what();
+                                transPtr->rollback();
                                 callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                             },
                             post_id, user_id
                         );
                     } else {
                         // 未点赞，执行点赞操作
-                        auto sql_insert = "INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)";
+                        // 使用INSERT IGNORE避免并发时UNIQUE约束冲突
+                        auto sql_insert = "INSERT IGNORE INTO post_likes (post_id, user_id) VALUES (?, ?)";
 
-                        dbClient->execSqlAsync(
+                        transPtr->execSqlAsync(
                             sql_insert,
-                            [callback, post_id, dbClient](const Result& r) {
-                                // 更新帖子的点赞数 +1
+                            [callback, post_id, transPtr](const Result& r) {
+                                // 检查是否真正插入了数据
+                                if (r.affectedRows() == 0) {
+                                    // 数据已存在（并发情况），直接返回成功
+                                    transPtr->rollback();
+
+                                    // 查询当前点赞数返回给用户
+                                    auto dbClient = drogon::app().getDbClient();
+                                    auto sql_count = "SELECT like_count FROM posts WHERE id = ?";
+                                    dbClient->execSqlAsync(
+                                        sql_count,
+                                        [callback](const Result& r) {
+                                            int like_count = r[0]["like_count"].as<int>();
+                                            Json::Value data;
+                                            data["liked"] = true;
+                                            data["like_count"] = like_count;
+                                            callback(ResponseUtil::success(data));
+                                        },
+                                        [callback](const DrogonDbException& e) {
+                                            callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
+                                        },
+                                        post_id
+                                    );
+                                    return;
+                                }
+
+                                // 成功插入，更新帖子的点赞数 +1
                                 auto sql_update = "UPDATE posts SET like_count = like_count + 1 WHERE id = ?";
 
-                                dbClient->execSqlAsync(
+                                transPtr->execSqlAsync(
                                     sql_update,
-                                    [callback, post_id, dbClient](const Result& r) {
+                                    [callback, post_id, transPtr](const Result& r) {
                                         // 查询最新的点赞数
                                         auto sql_count = "SELECT like_count FROM posts WHERE id = ?";
 
-                                        dbClient->execSqlAsync(
+                                        transPtr->execSqlAsync(
                                             sql_count,
-                                            [callback](const Result& r) {
+                                            [callback, transPtr](const Result& r) {
                                                 int like_count = r[0]["like_count"].as<int>();
 
-                                                Json::Value data;
-                                                data["liked"] = true;
-                                                data["like_count"] = like_count;
+                                                // 提交事务
+                                                transPtr->commit([callback, like_count]() {
+                                                    Json::Value data;
+                                                    data["liked"] = true;
+                                                    data["like_count"] = like_count;
 
-                                                callback(ResponseUtil::success(data));
+                                                    callback(ResponseUtil::success(data));
+                                                });
                                             },
-                                            [callback](const DrogonDbException& e) {
-                                                LOG_ERROR << "Database error: " << e.base().what();
+                                            [callback, transPtr](const DrogonDbException& e) {
+                                                LOG_ERROR << "Query like count error: " << e.base().what();
+                                                transPtr->rollback();
                                                 callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                                             },
                                             post_id
                                         );
                                     },
-                                    [callback](const DrogonDbException& e) {
+                                    [callback, transPtr](const DrogonDbException& e) {
                                         LOG_ERROR << "Update like count error: " << e.base().what();
+                                        transPtr->rollback();
                                         callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                                     },
                                     post_id
                                 );
                             },
-                            [callback](const DrogonDbException& e) {
-                                LOG_ERROR << "Database error: " << e.base().what();
+                            [callback, transPtr](const DrogonDbException& e) {
+                                LOG_ERROR << "Insert like error: " << e.base().what();
+                                transPtr->rollback();
                                 callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                             },
                             post_id, user_id
@@ -141,14 +191,14 @@ void LikeController::toggle(const HttpRequestPtr& req,
                     }
                 },
                 [callback](const DrogonDbException& e) {
-                    LOG_ERROR << "Database error: " << e.base().what();
+                    LOG_ERROR << "Check like error: " << e.base().what();
                     callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
                 },
                 post_id, user_id
             );
         },
         [callback](const DrogonDbException& e) {
-            LOG_ERROR << "Database error: " << e.base().what();
+            LOG_ERROR << "Check post error: " << e.base().what();
             callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
         },
         post_id
