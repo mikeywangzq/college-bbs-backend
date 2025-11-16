@@ -7,9 +7,43 @@
         }
     ],
     "app": {
-        "number_of_threads": 1,
+        "number_of_threads": 4,
+        "max_connections": 100000,
+        "document_root": "./",
+        "upload_path": "./uploads",
         "log": {
+            "log_path": "./logs",
+            "logfile_base_name": "college-bbs",
+            "log_size_limit": 100000000,
             "log_level": "DEBUG"
+        },
+        "run_as_daemon": false,
+        "relaunch_on_error": false,
+        "enable_session": false,
+        "session_timeout": 0,
+        "use_brotli": false,
+        "static_file_cache_time": 0,
+        "simple_controllers_map": [
+            {
+                "path_pattern": "/api/*",
+                "controller": "api::v1::*"
+            }
+        ]
+    },
+    "db_clients": [
+        {
+            "name": "default",
+            "rdbms": "mysql",
+            "host": "127.0.0.1",
+            "port": 3306,
+            "dbname": "college_bbs",
+            "user": "root",
+            "password": "123456",
+            "charset": "utf8mb4",
+            "connection_number": 5,
+            "timeout": 10,
+            "client_encoding": "utf8mb4",
+            "auto_commit": true
         }
-    }
+    ]
 }
