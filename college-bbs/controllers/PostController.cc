@@ -27,9 +27,9 @@ void PostController::create(const HttpRequestPtr& req,
         return;
     }
 
-    // 验证标题长度（5-100字）
+    // 验证标题长度（5-200字符）
     if (title.length() < 5 || title.length() > 200) {
-        callback(ResponseUtil::error(ResponseUtil::PARAM_ERROR, "标题长度必须在5-100字之间"));
+        callback(ResponseUtil::error(ResponseUtil::PARAM_ERROR, "标题长度必须在5-200字符之间"));
         return;
     }
 

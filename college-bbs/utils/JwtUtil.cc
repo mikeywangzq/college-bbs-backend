@@ -71,8 +71,13 @@ static std::string base64Decode(const std::string& encoded_string) {
            (isalnum(encoded_string[in_]) || (encoded_string[in_] == '+') || (encoded_string[in_] == '/'))) {
         char_array_4[i++] = encoded_string[in_]; in_++;
         if (i == 4) {
-            for (i = 0; i < 4; i++)
-                char_array_4[i] = base64_chars.find(char_array_4[i]);
+            for (i = 0; i < 4; i++) {
+                size_t pos = base64_chars.find(char_array_4[i]);
+                if (pos == std::string::npos) {
+                    return ""; // Invalid base64 character
+                }
+                char_array_4[i] = pos;
+            }
 
             char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
             char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
@@ -88,8 +93,13 @@ static std::string base64Decode(const std::string& encoded_string) {
         for (j = i; j < 4; j++)
             char_array_4[j] = 0;
 
-        for (j = 0; j < 4; j++)
-            char_array_4[j] = base64_chars.find(char_array_4[j]);
+        for (j = 0; j < 4; j++) {
+            size_t pos = base64_chars.find(char_array_4[j]);
+            if (pos == std::string::npos) {
+                pos = 0; // Treat as padding
+            }
+            char_array_4[j] = pos;
+        }
 
         char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
         char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
@@ -133,13 +143,13 @@ std::string JwtUtil::base64UrlDecode(const std::string& input) {
 }
 
 std::string JwtUtil::hmacSha256(const std::string& key, const std::string& data) {
-    unsigned char* digest;
+    unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int digest_len;
 
-    digest = HMAC(EVP_sha256(),
-                  key.c_str(), key.length(),
-                  reinterpret_cast<const unsigned char*>(data.c_str()), data.length(),
-                  nullptr, &digest_len);
+    HMAC(EVP_sha256(),
+         key.c_str(), key.length(),
+         reinterpret_cast<const unsigned char*>(data.c_str()), data.length(),
+         digest, &digest_len);
 
     return std::string(reinterpret_cast<char*>(digest), digest_len);
 }

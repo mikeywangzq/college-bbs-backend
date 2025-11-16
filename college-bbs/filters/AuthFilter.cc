@@ -17,7 +17,7 @@ void AuthFilter::doFilter(const HttpRequestPtr& req,
 
     // Token格式: Bearer <token>
     std::string token;
-    if (authHeader.substr(0, 7) == "Bearer ") {
+    if (authHeader.length() >= 7 && authHeader.substr(0, 7) == "Bearer ") {
         token = authHeader.substr(7);
     } else {
         token = authHeader;

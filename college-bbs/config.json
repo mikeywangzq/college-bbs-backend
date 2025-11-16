@@ -22,13 +22,7 @@
         "enable_session": false,
         "session_timeout": 0,
         "use_brotli": false,
-        "static_file_cache_time": 0,
-        "simple_controllers_map": [
-            {
-                "path_pattern": "/api/*",
-                "controller": "api::v1::*"
-            }
-        ]
+        "static_file_cache_time": 0
     },
     "db_clients": [
         {
