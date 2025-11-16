@@ -2,6 +2,7 @@
 #include "../utils/ResponseUtil.h"
 #include "../utils/JwtUtil.h"
 #include "../utils/PasswordUtil.h"
+#include "../utils/ErrorLogger.h"
 #include <drogon/orm/DbClient.h>
 #include <regex>
 
@@ -81,15 +82,17 @@ void UserController::register_(const HttpRequestPtr& req,
                     callback(ResponseUtil::success(data, "注册成功"));
                 },
                 [callback](const DrogonDbException& e) {
-                    LOG_ERROR << "Database error: " << e.base().what();
-                    callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
+                    auto errorId = ErrorLogger::generateErrorId();
+                    ErrorLogger::logDatabaseError(errorId, "insert user", e);
+                    callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误", errorId));
                 },
                 username, password_hash, email
             );
         },
         [callback](const DrogonDbException& e) {
-            LOG_ERROR << "Database error: " << e.base().what();
-            callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
+            auto errorId = ErrorLogger::generateErrorId();
+            ErrorLogger::logDatabaseError(errorId, "check username existence", e);
+            callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误", errorId));
         },
         username
     );
@@ -151,8 +154,9 @@ void UserController::login(const HttpRequestPtr& req,
             callback(ResponseUtil::success(data, "登录成功"));
         },
         [callback](const DrogonDbException& e) {
-            LOG_ERROR << "Database error: " << e.base().what();
-            callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
+            auto errorId = ErrorLogger::generateErrorId();
+            ErrorLogger::logDatabaseError(errorId, "query user login", e);
+            callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误", errorId));
         },
         username
     );
@@ -206,8 +210,9 @@ void UserController::getUserInfo(const HttpRequestPtr& req,
             callback(ResponseUtil::success(data));
         },
         [callback](const DrogonDbException& e) {
-            LOG_ERROR << "Database error: " << e.base().what();
-            callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误"));
+            auto errorId = ErrorLogger::generateErrorId();
+            ErrorLogger::logDatabaseError(errorId, "query user info", e);
+            callback(ResponseUtil::error(ResponseUtil::DB_ERROR, "数据库错误", errorId));
         },
         user_id
     );

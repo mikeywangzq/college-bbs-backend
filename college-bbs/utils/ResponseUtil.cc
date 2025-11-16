@@ -20,6 +20,17 @@ HttpResponsePtr ResponseUtil::error(int code, const std::string& msg) {
     return resp;
 }
 
+HttpResponsePtr ResponseUtil::error(int code, const std::string& msg, const std::string& errorId) {
+    Json::Value response;
+    response["code"] = code;
+    response["msg"] = msg.empty() ? getErrorMessage(code) : msg;
+    response["error_id"] = errorId;  // 添加错误ID用于追踪
+    response["data"] = Json::Value::null;
+
+    auto resp = HttpResponse::newHttpJsonResponse(response);
+    return resp;
+}
+
 std::string ResponseUtil::getErrorMessage(int code) {
     switch (code) {
         case SUCCESS:

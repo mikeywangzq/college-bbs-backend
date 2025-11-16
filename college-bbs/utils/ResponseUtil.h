@@ -44,6 +44,15 @@ public:
     static HttpResponsePtr error(int code, const std::string& msg);
 
     /**
+     * 失败响应（带错误ID）
+     * @param code 错误码
+     * @param msg 错误消息
+     * @param errorId 错误ID（用于追踪）
+     * @return HttpResponse
+     */
+    static HttpResponsePtr error(int code, const std::string& msg, const std::string& errorId);
+
+    /**
      * 获取错误消息
      * @param code 错误码
      * @return 错误消息
